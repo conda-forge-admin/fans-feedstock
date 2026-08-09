@@ -9,6 +9,11 @@ source:
   url: https://github.com/DataAnalyticsEngineering/FANS/archive/refs/tags/v${{ version }}.tar.gz
   sha256: 4a8651d3139f4ac583973704652abe29661a58d583955aef1b8de1d31baed6db
 
+build:
+  number: 0
+  skip:
+    - win
+
 outputs:
   - staging:
       name: fans-build
@@ -75,9 +80,6 @@ outputs:
       name: fans
     inherit: fans-build
     build:
-      number: 0
-      skip:
-        - win
       files:
         - bin/FANS
         - lib/libFANS*
@@ -120,9 +122,6 @@ outputs:
       name: pyfans
     inherit: fans-build
     build:
-      number: 0
-      skip:
-        - win
       files:
         - lib/python*/site-packages/PyFANS*.so
     requirements:
