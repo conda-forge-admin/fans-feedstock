@@ -1,5 +1,7 @@
 context:
   version: "0.8.0"
+  # abi3 floor; must match requires-python in pyfans/pyproject.toml
+  python_min: "3.12"
 
 recipe:
   name: fans
@@ -97,9 +99,27 @@ outputs:
   - package:
       name: pyfans
     build:
+      # One abi3 build serves every Python from python_min up, so build it once
+      # rather than once per Python in the variant matrix.
+      skip:
+        - match(python, "!=" + python_min)
       python:
         version_independent: true
       script:
+        - if: (build_platform != target_platform)
+          then:
+            # Same MPI wrapper setup and host-flag scrubbing the fans output
+            # needs when cross compiling.
+            - export OMPI_CC=$CC
+            - export OMPI_CXX=$CXX
+            - export OPAL_PREFIX="$PREFIX"
+            - |
+              for var in CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS; do
+                val="${!var}"
+                val="$(echo "$val" | sed -E 's/(^|[[:space:]])-march=nocona([[:space:]]|$)/ /g; s/(^|[[:space:]])-mtune=haswell([[:space:]]|$)/ /g')"
+                val="$(echo "$val" | tr -s ' ' | sed -E 's/^ //; s/ $//')"
+                export "$var=$val"
+              done
         - ${{ PYTHON }} -m pip install ./pyfans -vv --no-deps --no-build-isolation
     requirements:
       build:
@@ -110,6 +130,7 @@ outputs:
         - ninja
         - if: (build_platform != target_platform)
           then:
+            - openmpi-mpicxx
             - python
             - cross-python_${{ target_platform }}
       host:
