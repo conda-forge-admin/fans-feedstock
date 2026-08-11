@@ -6,8 +6,8 @@ recipe:
   version: ${{ version }}
 
 source:
-  url: https://github.com/DataAnalyticsEngineering/FANS/archive/refs/tags/v${{ version }}.tar.gz
-  sha256: 4a8651d3139f4ac583973704652abe29661a58d583955aef1b8de1d31baed6db
+  git: https://github.com/DataAnalyticsEngineering/FANS.git
+  branch: nanobind-migration
 
 build:
   number: 0
@@ -15,83 +15,59 @@ build:
     - win
 
 outputs:
-  - staging:
-      name: fans-build
-    build:
-      script:
-      - if: unix
-        then:
-        - if: (build_platform != target_platform)
-          then:
-          - export OMPI_CC=$CC
-          - export OMPI_CXX=$CXX
-          - export OMPI_FC=$FC
-          - export OPAL_PREFIX="$PREFIX"
-          - export FFLAGS="${FFLAGS} -DAVOID_MPI_IN_PLACE"
-          - export LDFLAGS="${LDFLAGS} -headerpad_max_install_names"
-          # cross-python wraps `python` to report the target's EXT_SUFFIX but
-          # leaves `pythonX.Y` alone, and FindPython picks the latter.
-          - export CMAKE_ARGS="${CMAKE_ARGS} -DPython_EXECUTABLE=${BUILD_PREFIX}/bin/python"
-          - |
-            # Filter out host-only CPU flags safely
-            for var in CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS; do
-              val="${!var}"
-              # Remove -march=nocona and -mtune=haswell as whole tokens
-              val="$(echo "$val" | sed -E 's/(^|[[:space:]])-march=nocona([[:space:]]|$)/ /g; s/(^|[[:space:]])-mtune=haswell([[:space:]]|$)/ /g')"
-              # Normalize spacing (trim and collapse multiple spaces)
-              val="$(echo "$val" | tr -s ' ' | sed -E 's/^ //; s/ $//')"
-              export "$var=$val"
-            done
-            for var in CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS; do
-              echo "$var cleaned: '${!var}'"
-            done
-        - mkdir build
-        - cd build
-        - cmake .. $CMAKE_ARGS -DFANS_LIBRARY_FOR_MICRO_MANAGER=ON
-        - cmake --build . -j
-        - cmake --install .
-    requirements:
-      build:
-      - ${{ compiler('c') }}
-      - ${{ compiler('cxx') }}
-      - ${{ stdlib('c') }}
-      - cmake
-      - make
-      - ninja
-      - if: (build_platform != target_platform)
-        then:
-        - openmpi-mpicxx
-        - python
-        - cross-python_${{ target_platform }}
-      host:
-      - python
-      - pybind11
-      # Pinned to 1.14 deliberately: unpinned resolves to hdf5 2.1, and every
-      # conda-forge fenics-dolfinx pins 1.14, so PyFANS could not share an
-      # environment with the Micro Manager's macro side.
-      - hdf5 >=1.14,<2 mpi_openmpi*
-      - fftw * mpi_openmpi*
-      - openmpi-mpicxx
-      - eigen
-      - nlohmann_json
-      - spdlog
-
+  # The solver: binary, library, headers and cmake package. No Python.
   - package:
       name: fans
-    inherit: fans-build
     build:
-      files:
-        - bin/FANS
-        - lib/libFANS*
-        - include/FANS/**
-        - lib/cmake/FANS/**
+      script:
+        - if: unix
+          then:
+            - if: (build_platform != target_platform)
+              then:
+                # flags from https://conda-forge.org/docs/maintainer/knowledge_base/#cross-compilation and https://github.com/conda-forge/mumps-feedstock/blob/966474677d28486ef897b0d3bb2c10558dc9b5ca/recipe/build-mumps.sh
+                - export OMPI_CC=$CC
+                - export OMPI_CXX=$CXX
+                - export OMPI_FC=$FC
+                - export OPAL_PREFIX="$PREFIX"
+                - export FFLAGS="${FFLAGS} -DAVOID_MPI_IN_PLACE"
+                - export LDFLAGS="${LDFLAGS} -headerpad_max_install_names"
+                - |
+                  # Filter out host-only CPU flags safely
+                  for var in CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS; do
+                    val="${!var}"
+                    # Remove -march=nocona and -mtune=haswell as whole tokens
+                    val="$(echo "$val" | sed -E 's/(^|[[:space:]])-march=nocona([[:space:]]|$)/ /g; s/(^|[[:space:]])-mtune=haswell([[:space:]]|$)/ /g')"
+                    # Normalize spacing (trim and collapse multiple spaces)
+                    val="$(echo "$val" | tr -s ' ' | sed -E 's/^ //; s/ $//')"
+                    export "$var=$val"
+                  done
+                  for var in CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS; do
+                    echo "$var cleaned: '${!var}'"
+                  done
+            - cmake -S . -B build $CMAKE_ARGS
+            - cmake --build build -j
+            - cmake --install build
     requirements:
-      # The shared build needs python to compile the bindings, but nothing in
-      # this output links it -- without this, python's run_export would put
-      # python_abi on the solver and force an interpreter on every install.
-      ignore_run_exports:
-        from_package:
-          - python
+      build:
+        - ${{ compiler('c') }}
+        - ${{ compiler('cxx') }}
+        - ${{ stdlib('c') }}
+        - cmake
+        - make
+        - ninja
+        - if: (build_platform != target_platform)
+          then:
+            - openmpi-mpicxx
+      host:
+        # Pinned to 1.14 deliberately: unpinned resolves to hdf5 2.1, and every
+        # conda-forge fenics-dolfinx pins 1.14, so pyfans could not share an
+        # environment with the Micro Manager's macro side.
+        - hdf5 >=1.14,<2 mpi_openmpi*
+        - fftw * mpi_openmpi*
+        - openmpi-mpicxx
+        - eigen
+        - nlohmann_json
+        - spdlog
     tests:
       - package_contents:
           bin:
@@ -116,15 +92,39 @@ outputs:
       - script:
           - FANS --version
 
-  # The pybind11 bindings the preCICE Micro Manager imports. Specific to one
-  # Python ABI, which is why they are not part of `fans`.
+  # The nanobind bindings, built against the `fans` package above rather than
+  # rebuilding the solver. One abi3 build serves every supported Python.
   - package:
       name: pyfans
-    inherit: fans-build
     build:
-      files:
-        - lib/python*/site-packages/PyFANS*.so
+      python:
+        version_independent: true
+      script:
+        - ${{ PYTHON }} -m pip install ./pyfans -vv --no-deps --no-build-isolation
     requirements:
+      build:
+        - ${{ compiler('c') }}
+        - ${{ compiler('cxx') }}
+        - ${{ stdlib('c') }}
+        - cmake
+        - ninja
+        - if: (build_platform != target_platform)
+          then:
+            - python
+            - cross-python_${{ target_platform }}
+      host:
+        - python
+        - pip
+        - scikit-build-core
+        - nanobind
+        - ${{ pin_subpackage('fans', exact=True) }}
+        # FANSConfig.cmake re-resolves these through find_dependency.
+        - hdf5 >=1.14,<2 mpi_openmpi*
+        - fftw * mpi_openmpi*
+        - openmpi-mpicxx
+        - eigen
+        - nlohmann_json
+        - spdlog
       run:
         - python
         - ${{ pin_subpackage('fans', exact=True) }}
