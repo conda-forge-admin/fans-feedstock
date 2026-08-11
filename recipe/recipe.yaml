@@ -127,6 +127,7 @@ outputs:
         - ${{ compiler('cxx') }}
         - ${{ stdlib('c') }}
         - cmake
+        - make
         - ninja
         - if: (build_platform != target_platform)
           then:
