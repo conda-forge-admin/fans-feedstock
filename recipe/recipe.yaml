@@ -1,5 +1,5 @@
 context:
-  version: "0.8.0"
+  version: "0.8.1"
   # abi3 floor; must match requires-python in pyfans/pyproject.toml
   python_min: "3.12"
 
@@ -8,8 +8,8 @@ recipe:
   version: ${{ version }}
 
 source:
-  git: https://github.com/DataAnalyticsEngineering/FANS.git
-  branch: nanobind-migration
+  url: https://github.com/DataAnalyticsEngineering/FANS/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: 6d0063ba38ddac9d9f7f18d920a509a2d4496bf9afaf1cd9fb7088ceaf11e23d
 
 build:
   number: 0
